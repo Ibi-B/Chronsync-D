@@ -31,11 +31,11 @@ jobs:
         run: |
           mkdir -p raw_data public
           curl -L --fail "https://i.mjh.nz/PlutoTV/au.xml.gz" | gunzip > raw_data/pluto_au.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" | gunzip > raw_data/share_au.xml
           curl -L --fail "https://epg.pw/xmltv/epg_NZ.xml.gz" | gunzip > raw_data/pw_nz.xml
           curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" | gunzip > raw_data/share_in.xml
           curl -L --fail "https://epg.pw/xmltv/epg_IN.xml.gz" | gunzip > raw_data/pw_in.xml
           python scripts/build_db.py public/d.sqlite3
+          python scripts/validate_db.py public/d.sqlite3
 
       - uses: actions/configure-pages@v5
 
