@@ -32,11 +32,35 @@ jobs:
 
       - name: Build Node D
         run: |
+          set -euo pipefail
           mkdir -p raw_data public
-          curl -L --fail "https://i.mjh.nz/PlutoTV/au.xml.gz" | gunzip > raw_data/pluto_au.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_NZ.xml.gz" | gunzip > raw_data/pw_nz.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" | gunzip > raw_data/share_in.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_IN.xml.gz" | gunzip > raw_data/pw_in.xml
+          fetch_xmltv() {
+            local url="$1"
+            local output="$2"
+            local compressed="${output}.gz"
+            if curl --location --fail --silent --show-error --retry 2 --retry-all-errors "$url" --output "$compressed" &&
+               gzip -t "$compressed" &&
+               gzip -dc "$compressed" > "$output" &&
+               test -s "$output"; then
+              rm -f "$compressed"
+              echo "::notice::Fetched valid XMLTV feed: $url"
+            else
+              rm -f "$compressed" "$output"
+              echo "::warning::Skipping unavailable or invalid optional feed: $url"
+            fi
+          }
+
+          fetch_xmltv "https://i.mjh.nz/PlutoTV/au.xml.gz" raw_data/pluto_au.xml
+          fetch_xmltv "https://epg.pw/xmltv/epg_NZ.xml.gz" raw_data/pw_nz.xml
+          fetch_xmltv "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" raw_data/share_in.xml
+          fetch_xmltv "https://epg.pw/xmltv/epg_IN.xml.gz" raw_data/pw_in.xml
+
+          valid_feeds=$(find raw_data -maxdepth 1 -type f -name '*.xml' -size +0c | wc -l)
+          if [ "$valid_feeds" -eq 0 ]; then
+            echo "::error::No valid regional XMLTV feeds were downloaded; refusing to build an empty database."
+            exit 1
+          fi
+
           python scripts/build_db.py public/d.sqlite3
           python scripts/validate_db.py public/d.sqlite3
 
