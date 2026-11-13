@@ -21,20 +21,24 @@ def fail(message: str) -> None:
 
 
 def parse_xmltv_time(value: str):
-    if not value:
-        return None
-
     parts = value.split()
-    raw = parts[0]
-
-    if len(raw) == 12:
-        local_time = datetime.strptime(raw, "%Y%m%d%H%M")
-    elif len(raw) == 14:
-        local_time = datetime.strptime(raw, "%Y%m%d%H%M%S")
-    else:
+    if not parts or len(parts) > 2:
         return None
 
-    if len(parts) > 1:
+    raw = parts[0]
+    try:
+        if len(raw) == 12:
+            local_time = datetime.strptime(raw, "%Y%m%d%H%M")
+        elif len(raw) == 14:
+            local_time = datetime.strptime(raw, "%Y%m%d%H%M%S")
+        else:
+            return None
+    except ValueError:
+        # Match validator behavior: a malformed timestamp invalidates only
+        # this programme record, rather than aborting the entire database build.
+        return None
+
+    if len(parts) == 2:
         offset = parts[1]
         if len(offset) != 5 or offset[0] not in "+-" or not offset[1:].isdigit():
             return None
@@ -128,13 +132,15 @@ def parse_xml_to_db(
     invalid_programme_count = 0
     duplicate_channels = 0
 
-    context = etree.iterparse(
-        xml_file,
-        events=("end",),
-        tag=("channel", "programme")
-    )
+    context = etree.iterparse(xml_file, events=("start", "end"))
+    first_event, root = next(context)
+    if first_event != "start" or root.tag != "tv":
+        fail(f"{xml_file}: XML root element must be <tv>")
 
-    for _, elem in context:
+    for event, elem in context:
+        if event != "end" or elem.tag not in ("channel", "programme"):
+            continue
+
         if elem.tag == "channel":
             channel_id = (elem.get("id") or "").strip()
             if not channel_id:
@@ -162,6 +168,8 @@ def parse_xml_to_db(
 
             start_time = parse_xmltv_time(start_raw)
             stop_time = parse_xmltv_time(stop_raw)
+            title_elem = elem.find("title")
+            title_text = title_elem.text if title_elem is not None else None
 
             if not channel_id:
                 invalid_programme_count += 1
@@ -191,13 +199,19 @@ def parse_xml_to_db(
                     f"start={start_raw!r}, stop={stop_raw!r}",
                     file=sys.stderr,
                 )
+            elif not (title_text or "").strip():
+                invalid_programme_count += 1
+                print(
+                    f"{xml_file}: skipped programme with missing or empty title "
+                    f"for channel {channel_id!r}",
+                    file=sys.stderr,
+                )
             else:
-                title_elem = elem.find("title")
                 desc_elem = elem.find("desc")
 
                 programs.append((
                     channel_id,
-                    title_elem.text if title_elem is not None else "Unknown",
+                    title_text,
                     desc_elem.text if desc_elem is not None else "",
                     start_raw,
                     stop_raw,
@@ -246,6 +260,7 @@ def verify_database(conn, database_path: str):
         WHERE channel_id IS NULL
            OR TRIM(channel_id) = ''
            OR title IS NULL
+           OR TRIM(title) = ''
            OR start_utc IS NULL
            OR TRIM(start_utc) = ''
            OR stop_utc IS NULL
