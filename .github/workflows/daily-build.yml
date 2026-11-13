@@ -1,6 +1,9 @@
 name: Build Node D
 
 on:
+  push:
+    branches:
+      - chore/chronsync-d-feed-acquisition
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
@@ -11,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -27,20 +30,53 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
       - name: Build Node D
         run: |
+          set -euo pipefail
           mkdir -p raw_data public
-          curl -L --fail "https://i.mjh.nz/PlutoTV/au.xml.gz" | gunzip > raw_data/pluto_au.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" | gunzip > raw_data/share_au.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_NZ.xml.gz" | gunzip > raw_data/pw_nz.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" | gunzip > raw_data/share_in.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_IN.xml.gz" | gunzip > raw_data/pw_in.xml
+
+          python scripts/fetch_feeds.py \
+            --report raw_data/source_report.tsv \
+            --feed "https://i.mjh.nz/PlutoTV/au.xml.gz" "raw_data/pluto_au.xml" \
+            --feed "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" "raw_data/share_au.xml" \
+            --feed "https://epg.pw/xmltv/epg_NZ.xml.gz" "raw_data/pw_nz.xml" \
+            --feed "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" "raw_data/share_in.xml" \
+            --feed "https://epg.pw/xmltv/epg_IN.xml.gz" "raw_data/pw_in.xml"
+
+          # fetch_feeds.py validates each source independently and removes
+          # rejected feeds, allowing the remaining usable sources to continue.
           python scripts/build_db.py public/d.sqlite3
 
-      - uses: actions/configure-pages@v5
+      - name: Upload database artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epg-database
+          path: public/*.sqlite3
+          if-no-files-found: error
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Upload per-source reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: epg-reports
+          path: |
+            raw_data/source_report.tsv
+            raw_data/build_report.tsv
+          if-no-files-found: error
+
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
 
-      - uses: actions/deploy-pages@v4
+      - name: Deploy GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/deploy-pages@v4
