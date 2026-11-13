@@ -114,6 +114,35 @@ class EpgPipelineTests(unittest.TestCase):
             self.assertEqual(orphan_count, 1)
             connection.close()
 
+    def test_coverage_baseline_warns_on_decline_and_fails_major_collapse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "coverage.sqlite3"
+            connection = build_db.init_database(str(database_path))
+            connection.execute(
+                "INSERT INTO channels (id, name, logo) VALUES (?, ?, ?)",
+                ("news", "News", ""),
+            )
+            connection.execute(
+                "INSERT INTO programs "
+                "(channel_id, title, desc, start_utc, stop_utc) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("news", "News", "", "2030-01-01T12:00:00Z", "2030-01-01T13:00:00Z"),
+            )
+            connection.commit()
+
+            baseline = {
+                "baseline_date": "2026-11-10",
+                "channels": 2,
+                "programmes": 2,
+                "minimum_ratio": 0.5,
+            }
+            build_db.verify_coverage(connection, baseline)
+            baseline["channels"] = 3
+            baseline["programmes"] = 3
+            with self.assertRaises(build_db.BuildError):
+                build_db.verify_coverage(connection, baseline)
+            connection.close()
+
     def test_large_stream_flush_keeps_all_programmes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "large.xml"
