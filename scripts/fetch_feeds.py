@@ -47,8 +47,10 @@ def remove_files(*paths):
 
 def fetch_feed(url, compressed_path, output_path, retries, timeout):
     last_error = "unknown error"
+    last_byte_count = 0
 
     for attempt in range(1, retries + 1):
+        byte_count = 0
         try:
             subprocess.run(
                 [
@@ -84,29 +86,33 @@ def fetch_feed(url, compressed_path, output_path, retries, timeout):
             if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                 raise RuntimeError("extracted XML file is empty")
 
+            byte_count = os.path.getsize(output_path)
             channel_count, programme_count = count_xmltv_entries(output_path)
 
             if programme_count == 0:
                 remove_files(compressed_path, output_path)
-                return False, "skipped_zero_programmes", channel_count, programme_count
+                return False, "skipped_zero_programmes", channel_count, programme_count, byte_count
 
             try:
                 validate(Path(output_path))
             except SystemExit:
                 # Reject this feed only; the caller continues with other sources.
                 remove_files(compressed_path, output_path)
-                return False, "skipped_invalid_xmltv", channel_count, programme_count
+                return False, "skipped_invalid_xmltv", channel_count, programme_count, byte_count
 
-            return True, "ok", channel_count, programme_count
+            return True, "ok", channel_count, programme_count, byte_count
 
         except Exception as error:
             last_error = str(error)
+            if os.path.exists(output_path):
+                byte_count = os.path.getsize(output_path)
+            last_byte_count = byte_count
             remove_files(compressed_path, output_path)
 
             if attempt < retries:
                 time.sleep(5 * attempt)
 
-    return False, f"failed: {last_error}", 0, 0
+    return False, f"failed: {last_error}", 0, 0, last_byte_count
 
 
 def main():
@@ -132,17 +138,13 @@ def main():
 
         for url, output_path in args.feed:
             compressed_path = f"{output_path}.gz"
-            ok, status, channel_count, programme_count = fetch_feed(
+            ok, status, channel_count, programme_count, byte_count = fetch_feed(
                 url,
                 compressed_path,
                 output_path,
                 args.retries,
                 args.timeout,
             )
-
-            byte_count = 0
-            if os.path.exists(output_path):
-                byte_count = os.path.getsize(output_path)
 
             report.write(
                 f"{os.path.basename(output_path)}\t{url}\t{byte_count}\t"
