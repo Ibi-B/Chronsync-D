@@ -40,10 +40,8 @@ jobs:
             --feed "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" "raw_data/share_in.xml" \
             --feed "https://epg.pw/xmltv/epg_IN.xml.gz" "raw_data/pw_in.xml"
 
-          for file in raw_data/*.xml; do
-            python scripts/validate_epg.py "$file"
-          done
-
+          # fetch_feeds.py validates each source independently and removes
+          # rejected feeds, allowing the remaining usable sources to continue.
           python scripts/build_db.py public/d.sqlite3
 
       - name: Upload database artifact
