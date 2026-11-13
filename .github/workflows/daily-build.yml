@@ -29,12 +29,41 @@ jobs:
 
       - name: Build Node D
         run: |
+          set -euo pipefail
           mkdir -p raw_data public
-          curl -L --fail "https://i.mjh.nz/PlutoTV/au.xml.gz" | gunzip > raw_data/pluto_au.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" | gunzip > raw_data/share_au.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_NZ.xml.gz" | gunzip > raw_data/pw_nz.xml
-          curl -L --fail "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" | gunzip > raw_data/share_in.xml
-          curl -L --fail "https://epg.pw/xmltv/epg_IN.xml.gz" | gunzip > raw_data/pw_in.xml
+
+          report="raw_data/source_report.tsv"
+          printf 'source\turl\tbytes\tstatus\n' > "$report"
+
+          fetch() {
+            local url="$1"
+            local output="$2"
+            local compressed="${output}.gz"
+
+            curl --fail --location --show-error --silent \
+              "$url" \
+              -o "$compressed"
+
+            test -s "$compressed"
+            gzip -t "$compressed"
+            gunzip -c "$compressed" > "$output"
+            test -s "$output"
+
+            printf '%s\t%s\t%s\tok\n' \
+              "$(basename "$output")" \
+              "$url" \
+              "$(stat -c%s "$output")" \
+              >> "$report"
+          }
+
+          fetch "https://i.mjh.nz/PlutoTV/au.xml.gz" "raw_data/pluto_au.xml"
+          fetch "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" "raw_data/share_au.xml"
+          fetch "https://epg.pw/xmltv/epg_NZ.xml.gz" "raw_data/pw_nz.xml"
+          fetch "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" "raw_data/share_in.xml"
+          fetch "https://epg.pw/xmltv/epg_IN.xml.gz" "raw_data/pw_in.xml"
+
+          test "$(find raw_data -maxdepth 1 -name '*.xml' -type f | wc -l)" -eq 5
+
           python scripts/build_db.py public/d.sqlite3
 
       - uses: actions/configure-pages@v5
