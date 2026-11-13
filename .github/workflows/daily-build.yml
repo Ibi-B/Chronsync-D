@@ -58,6 +58,15 @@ jobs:
           path: public/*.sqlite3
           if-no-files-found: error
 
+      - name: Upload per-source reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: epg-reports
+          path: |
+            raw_data/source_report.tsv
+            raw_data/build_report.tsv
+          if-no-files-found: error
+
       - name: Configure GitHub Pages
         if: github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
