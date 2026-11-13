@@ -6,6 +6,9 @@ import sys
 import time
 
 from lxml import etree
+from pathlib import Path
+
+from validate_epg import validate
 
 
 def count_xmltv_entries(path):
@@ -86,6 +89,13 @@ def fetch_feed(url, compressed_path, output_path, retries, timeout):
             if programme_count == 0:
                 remove_files(compressed_path, output_path)
                 return False, "skipped_zero_programmes", channel_count, programme_count
+
+            try:
+                validate(Path(output_path))
+            except SystemExit:
+                # Reject this feed only; the caller continues with other sources.
+                remove_files(compressed_path, output_path)
+                return False, "skipped_invalid_xmltv", channel_count, programme_count
 
             return True, "ok", channel_count, programme_count
 
