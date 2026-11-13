@@ -32,37 +32,13 @@ jobs:
           set -euo pipefail
           mkdir -p raw_data public
 
-          report="raw_data/source_report.tsv"
-          printf 'source\turl\tbytes\tstatus\n' > "$report"
-
-          fetch() {
-            local url="$1"
-            local output="$2"
-            local compressed="${output}.gz"
-
-            curl --fail --location --show-error --silent \
-              "$url" \
-              -o "$compressed"
-
-            test -s "$compressed"
-            gzip -t "$compressed"
-            gunzip -c "$compressed" > "$output"
-            test -s "$output"
-
-            printf '%s\t%s\t%s\tok\n' \
-              "$(basename "$output")" \
-              "$url" \
-              "$(stat -c%s "$output")" \
-              >> "$report"
-          }
-
-          fetch "https://i.mjh.nz/PlutoTV/au.xml.gz" "raw_data/pluto_au.xml"
-          fetch "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" "raw_data/share_au.xml"
-          fetch "https://epg.pw/xmltv/epg_NZ.xml.gz" "raw_data/pw_nz.xml"
-          fetch "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" "raw_data/share_in.xml"
-          fetch "https://epg.pw/xmltv/epg_IN.xml.gz" "raw_data/pw_in.xml"
-
-          test "$(find raw_data -maxdepth 1 -name '*.xml' -type f | wc -l)" -eq 5
+          python scripts/fetch_feeds.py \
+            --report raw_data/source_report.tsv \
+            --feed "https://i.mjh.nz/PlutoTV/au.xml.gz" "raw_data/pluto_au.xml" \
+            --feed "https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz" "raw_data/share_au.xml" \
+            --feed "https://epg.pw/xmltv/epg_NZ.xml.gz" "raw_data/pw_nz.xml" \
+            --feed "https://epgshare01.online/epgshare01/epg_ripper_IN1.xml.gz" "raw_data/share_in.xml" \
+            --feed "https://epg.pw/xmltv/epg_IN.xml.gz" "raw_data/pw_in.xml"
 
           for file in raw_data/*.xml; do
             python scripts/validate_epg.py "$file"
@@ -70,10 +46,24 @@ jobs:
 
           python scripts/build_db.py public/d.sqlite3
 
-      - uses: actions/configure-pages@v5
+      - name: Upload database artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: epg-database
+          path: public/*.sqlite3
+          if-no-files-found: error
 
-      - uses: actions/upload-pages-artifact@v3
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: ./public
 
-      - uses: actions/deploy-pages@v4
+      - name: Deploy GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: actions/deploy-pages@v4
