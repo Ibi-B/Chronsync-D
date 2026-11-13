@@ -77,9 +77,14 @@ class EpgPipelineTests(unittest.TestCase):
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(programs)")
             }
-            self.assertTrue({
-                "channel_id", "title", "desc", "start_utc", "stop_utc"
-            }.issubset(columns))
+            self.assertEqual(
+                columns,
+                {"channel_id", "title", "desc", "start_utc", "stop_utc"},
+            )
+            indexes = {
+                row[1] for row in connection.execute("PRAGMA index_list(programs)")
+            }
+            self.assertEqual(indexes, {"idx_programs_time"})
             self.assertEqual(
                 connection.execute("SELECT COUNT(*) FROM programs").fetchone()[0],
                 1,
