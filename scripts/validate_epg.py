@@ -8,6 +8,10 @@ from lxml import etree
 TIMESTAMP_PATTERN = re.compile(r"^(\d{12}|\d{14})(?:\s+([+-]\d{4}))?$")
 
 
+class RecordDefect(Exception):
+    pass
+
+
 def fail(message: str) -> None:
     print(f"EPG validation failed: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -16,7 +20,7 @@ def fail(message: str) -> None:
 def parse_xmltv_timestamp(value: str, field: str) -> tuple[datetime, datetime]:
     match = TIMESTAMP_PATTERN.match(value.strip())
     if not match:
-        fail(f"invalid XMLTV timestamp in {field}: {value!r}")
+        raise RecordDefect(f"invalid XMLTV timestamp in {field}: {value!r}")
 
     raw, offset = match.groups()
     time_format = "%Y%m%d%H%M" if len(raw) == 12 else "%Y%m%d%H%M%S"
@@ -24,7 +28,9 @@ def parse_xmltv_timestamp(value: str, field: str) -> tuple[datetime, datetime]:
     try:
         local_time = datetime.strptime(raw, time_format)
     except ValueError as error:
-        fail(f"invalid calendar date or time in {field}: {value!r}: {error}")
+        raise RecordDefect(
+            f"invalid calendar date or time in {field}: {value!r}: {error}"
+        )
 
     if offset:
         sign = 1 if offset.startswith("+") else -1
@@ -32,7 +38,7 @@ def parse_xmltv_timestamp(value: str, field: str) -> tuple[datetime, datetime]:
         hours = int(digits[:2])
         minutes = int(digits[2:4])
         if hours > 23 or minutes > 59:
-            fail(f"invalid timezone offset in {field}: {value!r}")
+            raise RecordDefect(f"invalid timezone offset in {field}: {value!r}")
         local_time = local_time.replace(
             tzinfo=timezone(sign * timedelta(hours=hours, minutes=minutes))
         )
@@ -48,6 +54,7 @@ def validate(path: Path) -> None:
 
     channel_count = 0
     programme_count = 0
+    invalid_programme_count = 0
 
     try:
         context = etree.iterparse(
@@ -67,21 +74,35 @@ def validate(path: Path) -> None:
                 start = (element.get("start") or "").strip()
                 stop = (element.get("stop") or "").strip()
 
-                if not channel_ref:
-                    fail(f"{path}: a programme entry has no channel attribute")
-                if not start or not stop:
-                    fail(f"{path}: a programme entry is missing start or stop")
+                try:
+                    if not channel_ref:
+                        raise RecordDefect(
+                            "programme entry has no channel attribute"
+                        )
 
-                _, start_utc = parse_xmltv_timestamp(start, "start")
-                _, stop_utc = parse_xmltv_timestamp(stop, "stop")
+                    if not start or not stop:
+                        raise RecordDefect(
+                            "programme entry is missing start or stop"
+                        )
 
-                if stop_utc <= start_utc:
-                    fail(
-                        f"{path}: programme stop time is not later than start time: "
-                        f"channel={channel_ref!r}, start={start!r}, stop={stop!r}"
+                    _, start_utc = parse_xmltv_timestamp(start, "start")
+                    _, stop_utc = parse_xmltv_timestamp(stop, "stop")
+
+                    if stop_utc <= start_utc:
+                        raise RecordDefect(
+                            "programme stop time is not later than start time: "
+                            f"channel={channel_ref!r}, "
+                            f"start={start!r}, stop={stop!r}"
+                        )
+
+                    programme_count += 1
+
+                except RecordDefect as error:
+                    invalid_programme_count += 1
+                    print(
+                        f"{path}: skipped invalid programme record: {error}",
+                        file=sys.stderr,
                     )
-
-                programme_count += 1
 
             element.clear()
             parent = element.getparent()
@@ -94,12 +115,17 @@ def validate(path: Path) -> None:
 
     if channel_count == 0:
         fail(f"{path}: no <channel> elements found")
+
     if programme_count == 0:
-        fail(f"{path}: no <programme> elements found")
+        fail(
+            f"{path}: no valid <programme> elements found; "
+            f"invalid_records={invalid_programme_count}"
+        )
 
     print(
         f"{path}: EPG validation passed: "
-        f"{channel_count} channels, {programme_count} programmes"
+        f"{channel_count} channels, {programme_count} valid programmes, "
+        f"{invalid_programme_count} invalid records skipped"
     )
 
 

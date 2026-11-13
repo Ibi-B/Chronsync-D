@@ -125,6 +125,7 @@ def parse_xml_to_db(
     programs = []
     channel_count = 0
     programme_count = 0
+    invalid_programme_count = 0
     duplicate_channels = 0
 
     context = etree.iterparse(
@@ -159,44 +160,51 @@ def parse_xml_to_db(
             start_raw = (elem.get("start") or "").strip()
             stop_raw = (elem.get("stop") or "").strip()
 
-            if not channel_id:
-                fail(f"{xml_file}: a programme entry has no channel attribute")
-
             start_time = parse_xmltv_time(start_raw)
             stop_time = parse_xmltv_time(stop_raw)
 
-            if start_time is None:
-                fail(
-                    f"{xml_file}: invalid start timestamp for channel "
-                    f"{channel_id!r}: {start_raw!r}"
+            if not channel_id:
+                invalid_programme_count += 1
+                print(
+                    f"{xml_file}: skipped programme with missing channel attribute",
+                    file=sys.stderr,
                 )
-
-            if stop_time is None:
-                fail(
-                    f"{xml_file}: invalid stop timestamp for channel "
-                    f"{channel_id!r}: {stop_raw!r}"
+            elif start_time is None:
+                invalid_programme_count += 1
+                print(
+                    f"{xml_file}: skipped programme with invalid start timestamp "
+                    f"for channel {channel_id!r}: {start_raw!r}",
+                    file=sys.stderr,
                 )
-
-            if stop_time <= start_time:
-                fail(
-                    f"{xml_file}: programme stop time is not later than start time "
+            elif stop_time is None:
+                invalid_programme_count += 1
+                print(
+                    f"{xml_file}: skipped programme with invalid stop timestamp "
+                    f"for channel {channel_id!r}: {stop_raw!r}",
+                    file=sys.stderr,
+                )
+            elif stop_time <= start_time:
+                invalid_programme_count += 1
+                print(
+                    f"{xml_file}: skipped programme with non-positive interval "
                     f"for channel {channel_id!r}: "
-                    f"start={start_raw!r}, stop={stop_raw!r}"
+                    f"start={start_raw!r}, stop={stop_raw!r}",
+                    file=sys.stderr,
                 )
+            else:
+                title_elem = elem.find("title")
+                desc_elem = elem.find("desc")
 
-            title_elem = elem.find("title")
-            desc_elem = elem.find("desc")
-
-            programs.append((
-                channel_id,
-                title_elem.text if title_elem is not None else "Unknown",
-                desc_elem.text if desc_elem is not None else "",
-                start_raw,
-                stop_raw,
-                start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                stop_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-            ))
-            programme_count += 1
+                programs.append((
+                    channel_id,
+                    title_elem.text if title_elem is not None else "Unknown",
+                    desc_elem.text if desc_elem is not None else "",
+                    start_raw,
+                    stop_raw,
+                    start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    stop_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                ))
+                programme_count += 1
 
         elem.clear()
 
@@ -213,6 +221,7 @@ def parse_xml_to_db(
     source_counts[xml_file] = {
         "channels": channel_count,
         "programmes": programme_count,
+        "invalid_programmes": invalid_programme_count,
         "duplicate_channels": duplicate_channels
     }
 
@@ -229,7 +238,7 @@ def verify_database(conn, database_path: str):
         fail(f"{database_path}: no channels were imported")
 
     if programme_count == 0:
-        fail(f"{database_path}: no programmes were imported")
+        fail(f"{database_path}: no valid programmes were imported")
 
     invalid_rows = conn.execute("""
         SELECT COUNT(*)
@@ -319,6 +328,7 @@ def main():
             print(
                 f"{xml_file}: channels={counts['channels']}, "
                 f"programmes={counts['programmes']}, "
+                f"invalid_programmes={counts['invalid_programmes']}, "
                 f"duplicate_channels={counts['duplicate_channels']}"
             )
 
