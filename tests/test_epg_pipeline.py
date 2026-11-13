@@ -143,6 +143,20 @@ class EpgPipelineTests(unittest.TestCase):
                 build_db.verify_coverage(connection, baseline)
             connection.close()
 
+    def test_build_report_records_per_source_invalid_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = Path(directory) / "build_report.tsv"
+            build_db.write_build_report({
+                "raw_data/feed.xml": {
+                    "channels": 2,
+                    "programmes": 3,
+                    "invalid_programmes": 1,
+                    "duplicate_channels": 0,
+                }
+            }, str(report_path))
+            report = report_path.read_text(encoding="utf-8")
+            self.assertIn("feed.xml\t2\t3\t1\t0", report)
+
     def test_large_stream_flush_keeps_all_programmes(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "large.xml"
@@ -199,6 +213,7 @@ class EpgPipelineTests(unittest.TestCase):
 
             self.assertEqual(result[0], False)
             self.assertEqual(result[1], "skipped_invalid_xmltv")
+            self.assertGreater(result[4], 0)
             self.assertFalse(compressed.exists())
             self.assertFalse(output.exists())
 
@@ -212,15 +227,15 @@ class EpgPipelineTests(unittest.TestCase):
             ]
             with mock.patch.object(sys, "argv", arguments), \
                  mock.patch.object(fetch_feeds, "fetch_feed", side_effect=[
-                     (False, "skipped_invalid_xmltv", 1, 2),
-                     (True, "ok", 1, 1),
+                     (False, "skipped_invalid_xmltv", 1, 2, 100),
+                     (True, "ok", 1, 1, 200),
                  ]) as fetch:
                 self.assertEqual(fetch_feeds.main(), 0)
                 self.assertEqual(fetch.call_count, 2)
 
             with mock.patch.object(sys, "argv", arguments), \
                  mock.patch.object(fetch_feeds, "fetch_feed", return_value=(
-                     False, "failed: unavailable", 0, 0
+                     False, "failed: unavailable", 0, 0, 0
                  )):
                 self.assertEqual(fetch_feeds.main(), 1)
 
