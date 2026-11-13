@@ -357,6 +357,23 @@ def verify_coverage(conn, baseline=None):
         )
 
 
+def write_build_report(source_counts, report_path="raw_data/build_report.tsv"):
+    report_directory = os.path.dirname(report_path)
+    if report_directory:
+        os.makedirs(report_directory, exist_ok=True)
+
+    with open(report_path, "w", encoding="utf-8") as report:
+        report.write(
+            "source\tchannels\tprogrammes\tinvalid_programmes\tduplicate_channels\n"
+        )
+        for source, counts in sorted(source_counts.items()):
+            report.write(
+                f"{os.path.basename(source)}\t{counts['channels']}\t"
+                f"{counts['programmes']}\t{counts['invalid_programmes']}\t"
+                f"{counts['duplicate_channels']}\n"
+            )
+
+
 def main():
     xml_files = sorted(glob.glob("raw_data/*.xml"))
 
@@ -382,6 +399,8 @@ def main():
                 source_counts,
                 seen_channel_ids
             )
+
+        write_build_report(source_counts)
 
         for xml_file in xml_files:
             counts = source_counts[xml_file]
