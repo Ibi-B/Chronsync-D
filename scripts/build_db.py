@@ -80,20 +80,12 @@ def init_database(database_path: str):
             channel_id TEXT,
             title TEXT,
             desc TEXT,
-            start_time TEXT,
-            stop_time TEXT,
             start_utc TEXT,
             stop_utc TEXT
         );
 
-        CREATE INDEX IF NOT EXISTS idx_programs_channel
-            ON programs(channel_id);
-
         CREATE INDEX IF NOT EXISTS idx_programs_time
             ON programs(start_utc, stop_utc);
-
-        CREATE INDEX IF NOT EXISTS idx_programs_channel_time
-            ON programs(channel_id, start_utc, stop_utc);
     """)
 
     return conn
@@ -109,8 +101,8 @@ def flush(conn, channels, programs):
     if programs:
         conn.executemany(
             """INSERT INTO programs
-            (channel_id, title, desc, start_time, stop_time, start_utc, stop_utc)
-            VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (channel_id, title, desc, start_utc, stop_utc)
+            VALUES (?, ?, ?, ?, ?)""",
             programs
         )
 
@@ -213,8 +205,6 @@ def parse_xml_to_db(
                     channel_id,
                     title_text,
                     desc_elem.text if desc_elem is not None else "",
-                    start_raw,
-                    stop_raw,
                     start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     stop_time.strftime("%Y-%m-%dT%H:%M:%SZ")
                 ))
