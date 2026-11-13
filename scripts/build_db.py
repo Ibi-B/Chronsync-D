@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 import sqlite3
 import sys
@@ -302,6 +303,60 @@ def verify_database(conn, database_path: str):
     )
 
 
+def verify_coverage(conn, baseline=None):
+    if baseline is None:
+        baseline_path = os.path.join(
+            os.path.dirname(__file__),
+            "coverage_baseline.json",
+        )
+        try:
+            with open(baseline_path, encoding="utf-8") as baseline_file:
+                baseline = json.load(baseline_file)
+        except (OSError, ValueError) as error:
+            fail(f"could not read coverage baseline {baseline_path}: {error}")
+
+    try:
+        baseline_channels = int(baseline["channels"])
+        baseline_programmes = int(baseline["programmes"])
+        minimum_ratio = float(baseline["minimum_ratio"])
+        baseline_date = str(baseline["baseline_date"])
+    except (KeyError, TypeError, ValueError) as error:
+        fail(f"coverage baseline is incomplete or invalid: {error}")
+
+    if (
+        baseline_channels <= 0
+        or baseline_programmes <= 0
+        or not 0 < minimum_ratio <= 1
+    ):
+        fail("coverage baseline values must be positive and minimum_ratio must be in (0, 1]")
+
+    channel_count = conn.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
+    programme_count = conn.execute("SELECT COUNT(*) FROM programs").fetchone()[0]
+    channel_ratio = channel_count / baseline_channels
+    programme_ratio = programme_count / baseline_programmes
+
+    print(
+        f"Coverage baseline ({baseline_date}): "
+        f"channels={channel_count}/{baseline_channels} "
+        f"({channel_ratio:.1%}), "
+        f"programmes={programme_count}/{baseline_programmes} "
+        f"({programme_ratio:.1%})"
+    )
+
+    if channel_ratio < minimum_ratio or programme_ratio < minimum_ratio:
+        fail(
+            "major coverage collapse against historical baseline: "
+            f"channels={channel_ratio:.1%}, programmes={programme_ratio:.1%}; "
+            f"minimum accepted ratio={minimum_ratio:.1%}"
+        )
+
+    if channel_ratio < 1 or programme_ratio < 1:
+        print(
+            "WARNING: coverage is below the historical baseline; "
+            "review source changes and feed degradation"
+        )
+
+
 def main():
     xml_files = sorted(glob.glob("raw_data/*.xml"))
 
@@ -339,6 +394,7 @@ def main():
 
         conn.execute("VACUUM")
         verify_database(conn, temporary_database)
+        verify_coverage(conn)
         conn.close()
         conn = None
 
