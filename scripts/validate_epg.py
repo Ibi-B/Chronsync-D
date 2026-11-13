@@ -57,13 +57,15 @@ def validate(path: Path) -> None:
     invalid_programme_count = 0
 
     try:
-        context = etree.iterparse(
-            str(path),
-            events=("end",),
-            tag=("channel", "programme"),
-        )
+        context = etree.iterparse(str(path), events=("start", "end"))
+        first_event, root = next(context)
+        if first_event != "start" or root.tag != "tv":
+            fail(f"{path}: XML root element must be <tv>")
 
-        for _, element in context:
+        for event, element in context:
+            if event != "end" or element.tag not in ("channel", "programme"):
+                continue
+
             if element.tag == "channel":
                 if not (element.get("id") or "").strip():
                     fail(f"{path}: a channel entry has no usable id")
@@ -79,6 +81,10 @@ def validate(path: Path) -> None:
                         raise RecordDefect(
                             "programme entry has no channel attribute"
                         )
+
+                    title_element = element.find("title")
+                    if title_element is None or not (title_element.text or "").strip():
+                        raise RecordDefect("programme entry has no usable title")
 
                     if not start or not stop:
                         raise RecordDefect(
