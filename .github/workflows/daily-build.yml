@@ -3,7 +3,9 @@ name: Build Node D
 on:
   push:
     branches:
+      - main
       - chore/chronsync-d-feed-acquisition
+      - codex/preserve-xmltv-channel-aliases
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:

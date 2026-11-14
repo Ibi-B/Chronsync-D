@@ -77,6 +77,16 @@ def init_database(database_path: str):
             logo TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS channel_aliases (
+            channel_id TEXT NOT NULL,
+            alias TEXT NOT NULL,
+            language TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (channel_id, alias, language)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_channel_aliases_alias
+            ON channel_aliases(alias);
+
         CREATE TABLE IF NOT EXISTS programs (
             channel_id TEXT,
             title TEXT,
@@ -92,11 +102,18 @@ def init_database(database_path: str):
     return conn
 
 
-def flush(conn, channels, programs):
+def flush(conn, channels, programs, channel_aliases=None):
     if channels:
         conn.executemany(
             "INSERT OR REPLACE INTO channels (id, name, logo) VALUES (?, ?, ?)",
             channels
+        )
+
+    if channel_aliases:
+        conn.executemany(
+            """INSERT OR IGNORE INTO channel_aliases
+            (channel_id, alias, language) VALUES (?, ?, ?)""",
+            channel_aliases
         )
 
     if programs:
@@ -110,6 +127,8 @@ def flush(conn, channels, programs):
     conn.commit()
     channels.clear()
     programs.clear()
+    if channel_aliases is not None:
+        channel_aliases.clear()
 
 
 def parse_xml_to_db(
@@ -120,6 +139,7 @@ def parse_xml_to_db(
 ):
     channels = []
     programs = []
+    channel_aliases = []
     channel_count = 0
     programme_count = 0
     invalid_programme_count = 0
@@ -144,14 +164,25 @@ def parse_xml_to_db(
 
             seen_channel_ids.add(channel_id)
 
-            name_elem = elem.find("display-name")
+            display_names = []
+            for display_name in elem.findall("display-name"):
+                alias = "".join(display_name.itertext()).strip()
+                if alias:
+                    display_names.append((
+                        alias,
+                        (display_name.get("lang") or "").strip()
+                    ))
             logo_elem = elem.find("icon")
 
             channels.append((
                 channel_id,
-                name_elem.text if name_elem is not None else "Unknown",
+                display_names[0][0] if display_names else "Unknown",
                 logo_elem.get("src") if logo_elem is not None else ""
             ))
+            channel_aliases.extend(
+                (channel_id, alias, language)
+                for alias, language in display_names
+            )
             channel_count += 1
 
         elif elem.tag == "programme":
@@ -218,10 +249,14 @@ def parse_xml_to_db(
             while elem.getprevious() is not None:
                 del parent[0]
 
-        if len(channels) >= BATCH_SIZE or len(programs) >= BATCH_SIZE:
-            flush(conn, channels, programs)
+        if (
+            len(channels) >= BATCH_SIZE
+            or len(programs) >= BATCH_SIZE
+            or len(channel_aliases) >= BATCH_SIZE
+        ):
+            flush(conn, channels, programs, channel_aliases)
 
-    flush(conn, channels, programs)
+    flush(conn, channels, programs, channel_aliases)
 
     source_counts[xml_file] = {
         "channels": channel_count,
